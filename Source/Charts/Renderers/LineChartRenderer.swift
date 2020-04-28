@@ -308,75 +308,154 @@ open class LineChartRenderer: LineRadarRenderer
         }
         
         context.saveGState()
-
+        
+        if dataSet.colors.count > 1 {
             if _lineSegments.count != pointsPerEntryPair
-            {
-                // Allocate once in correct size
-                _lineSegments = [CGPoint](repeating: CGPoint(), count: pointsPerEntryPair)
-            }
+             {
+                 // Allocate once in correct size
+                 _lineSegments = [CGPoint](repeating: CGPoint(), count: pointsPerEntryPair)
+             }
 
-        for j in _xBounds.dropLast()
-        {
-            var e: ChartDataEntry! = dataSet.entryForIndex(j)
-            
-            if e == nil { continue }
-            
-            _lineSegments[0].x = CGFloat(e.x)
-            _lineSegments[0].y = CGFloat(e.y * phaseY)
-            
-            if j < _xBounds.max
-            {
-                // TODO: remove the check.
-                // With the new XBounds iterator, j is always smaller than _xBounds.max
-                // Keeping this check for a while, if xBounds have no further breaking changes, it should be safe to remove the check
-                e = dataSet.entryForIndex(j + 1)
-                
-                if e == nil { break }
-                
-                if isDrawSteppedEnabled
-                {
-                    _lineSegments[1] = CGPoint(x: CGFloat(e.x), y: _lineSegments[0].y)
-                    _lineSegments[2] = _lineSegments[1]
-                    _lineSegments[3] = CGPoint(x: CGFloat(e.x), y: CGFloat(e.y * phaseY))
-                }
-                else
-                {
-                    _lineSegments[1] = CGPoint(x: CGFloat(e.x), y: CGFloat(e.y * phaseY))
-                }
-            }
-            else
-            {
-                _lineSegments[1] = _lineSegments[0]
-            }
+         for j in _xBounds.dropLast()
+         {
+             var e: ChartDataEntry! = dataSet.entryForIndex(j)
+             
+             if e == nil { continue }
+             
+             _lineSegments[0].x = CGFloat(e.x)
+             _lineSegments[0].y = CGFloat(e.y * phaseY)
+             
+             if j < _xBounds.max
+             {
+                 // TODO: remove the check.
+                 // With the new XBounds iterator, j is always smaller than _xBounds.max
+                 // Keeping this check for a while, if xBounds have no further breaking changes, it should be safe to remove the check
+                 e = dataSet.entryForIndex(j + 1)
+                 
+                 if e == nil { break }
+                 
+                 if isDrawSteppedEnabled
+                 {
+                     _lineSegments[1] = CGPoint(x: CGFloat(e.x), y: _lineSegments[0].y)
+                     _lineSegments[2] = _lineSegments[1]
+                     _lineSegments[3] = CGPoint(x: CGFloat(e.x), y: CGFloat(e.y * phaseY))
+                 }
+                 else
+                 {
+                     _lineSegments[1] = CGPoint(x: CGFloat(e.x), y: CGFloat(e.y * phaseY))
+                 }
+             }
+             else
+             {
+                 _lineSegments[1] = _lineSegments[0]
+             }
 
-            for i in 0..<_lineSegments.count
+             for i in 0..<_lineSegments.count
+             {
+                 _lineSegments[i] = _lineSegments[i].applying(valueToPixelMatrix)
+             }
+             
+             if !viewPortHandler.isInBoundsRight(_lineSegments[0].x)
+             {
+                 break
+             }
+             
+             // Determine the start and end coordinates of the line, and make sure they differ.
+             guard
+                 let firstCoordinate = _lineSegments.first,
+                 let lastCoordinate = _lineSegments.last,
+                 firstCoordinate != lastCoordinate else { continue }
+             
+             // make sure the lines don't do shitty things outside bounds
+             if !viewPortHandler.isInBoundsLeft(lastCoordinate.x) ||
+                 !viewPortHandler.isInBoundsTop(max(firstCoordinate.y, lastCoordinate.y)) ||
+                 !viewPortHandler.isInBoundsBottom(min(firstCoordinate.y, lastCoordinate.y))
+             {
+                 continue
+             }
+             
+             // get the color that is set for this line-segment
+             context.setStrokeColor(dataSet.color(atIndex: j).cgColor)
+             context.strokeLineSegments(between: _lineSegments)
+         }
+        }else {
+            var e1: ChartDataEntry!
+            var e2: ChartDataEntry!
+            
+            e1 = dataSet.entryForIndex(_xBounds.min)
+            
+            if e1 != nil
             {
-                _lineSegments[i] = _lineSegments[i].applying(valueToPixelMatrix)
-            }
-            
-            if !viewPortHandler.isInBoundsRight(_lineSegments[0].x)
-            {
-                break
-            }
-            
-            // Determine the start and end coordinates of the line, and make sure they differ.
-            guard
-                let firstCoordinate = _lineSegments.first,
-                let lastCoordinate = _lineSegments.last,
-                firstCoordinate != lastCoordinate else { continue }
-            
-            // make sure the lines don't do shitty things outside bounds
-            if !viewPortHandler.isInBoundsLeft(lastCoordinate.x) ||
-                !viewPortHandler.isInBoundsTop(max(firstCoordinate.y, lastCoordinate.y)) ||
-                !viewPortHandler.isInBoundsBottom(min(firstCoordinate.y, lastCoordinate.y))
-            {
-                continue
-            }
-            
-            // get the color that is set for this line-segment
-            context.setStrokeColor(dataSet.color(atIndex: j).cgColor)
-            context.strokeLineSegments(between: _lineSegments)
+                context.beginPath()
+                var firstPoint = true
+                var closePath = false
+                for x in stride(from: _xBounds.min, through: _xBounds.range + _xBounds.min, by: 1)
+                {
+                    e1 = dataSet.entryForIndex(x == 0 ? 0 : (x - 1))
+                    e2 = dataSet.entryForIndex(x)
+                    
+                    if e1 == nil || e2 == nil { continue }
+                    
+                    let pt = CGPoint(
+                        x: CGFloat(e1.x),
+                        y: CGFloat(e1.y * phaseY)
+                        ).applying(valueToPixelMatrix)
+                    
+                    if firstPoint
+                    {
+                        if e1.visible {
+                            context.move(to: pt)
+                            firstPoint = false
+                         }else if e2.visible {
+                            context.move(to: CGPoint(
+                                x: CGFloat(e2.x),
+                                y: CGFloat(e2.y * phaseY)
+                                ).applying(valueToPixelMatrix))
+                        }
+                    }
+                    else if e1.visible
+                    {
+                        if closePath {
+                            continue
+                        }else {
+                            context.addLine(to: pt)
+                        }
+                    }
+                    
+                    if isDrawSteppedEnabled
+                    {
+                        context.addLine(to: CGPoint(
+                            x: CGFloat(e2.x),
+                            y: CGFloat(e1.y * phaseY)
+                            ).applying(valueToPixelMatrix))
+                    }
+                    if e2.visible {
+                        if closePath {
+                            context.move(to: CGPoint(
+                                x: CGFloat(e2.x),
+                                y: CGFloat(e2.y * phaseY)
+                                ).applying(valueToPixelMatrix))
+                            closePath = false
+                        }else{
+                            context.addLine(to: CGPoint(
+                                x: CGFloat(e2.x),
+                                y: CGFloat(e2.y * phaseY)
+                                ).applying(valueToPixelMatrix))
+                        }
+                    }else {
+                        closePath = true
+                    }
+               }
+                
+               if !firstPoint
+               {
+                   context.setStrokeColor(dataSet.color(atIndex: 0).cgColor)
+                   context.strokePath()
+               }
+           }
         }
+
+         
         
         context.restoreGState()
     }
@@ -411,35 +490,61 @@ open class LineChartRenderer: LineRadarRenderer
         var e: ChartDataEntry!
         
         let filled = CGMutablePath()
-        
+        var drawFirst = false
         e = dataSet.entryForIndex(bounds.min)
-        if e != nil
+        if e != nil && e.visible
         {
+            drawFirst = true
             filled.move(to: CGPoint(x: CGFloat(e.x), y: fillMin), transform: matrix)
             filled.addLine(to: CGPoint(x: CGFloat(e.x), y: CGFloat(e.y * phaseY)), transform: matrix)
         }
-        
+        var currentEntry  :ChartDataEntry!
+        var previousEntry :ChartDataEntry!
+        previousEntry = e
+        var closed = false
         // create a new path
         for x in stride(from: (bounds.min + 1), through: bounds.range + bounds.min, by: 1)
         {
             guard let e = dataSet.entryForIndex(x) else { continue }
-            
+            currentEntry = e
+            if !currentEntry.visible {
+                if closed || !drawFirst{
+                    continue
+                }
+                filled.addLine(to: CGPoint(x: CGFloat(previousEntry.x), y: fillMin), transform: matrix)
+                filled.closeSubpath()
+                closed = true
+                continue
+            }
+            else if closed {
+                closed = false
+                filled.move(to: CGPoint(x: CGFloat(currentEntry.x), y: fillMin), transform: matrix)
+            }
             if isDrawSteppedEnabled
             {
                 guard let ePrev = dataSet.entryForIndex(x-1) else { continue }
                 filled.addLine(to: CGPoint(x: CGFloat(e.x), y: CGFloat(ePrev.y * phaseY)), transform: matrix)
             }
-            
-            filled.addLine(to: CGPoint(x: CGFloat(e.x), y: CGFloat(e.y * phaseY)), transform: matrix)
+            if drawFirst {
+                filled.addLine(to: CGPoint(x: CGFloat(e.x), y: CGFloat(e.y * phaseY)), transform: matrix)
+            }else{
+                drawFirst = true
+                filled.move(to: CGPoint(x: CGFloat(e.x), y: fillMin), transform: matrix)
+                filled.addLine(to: CGPoint(x: CGFloat(e.x), y: CGFloat(e.y * phaseY)), transform: matrix)
+            }
+            previousEntry = currentEntry
         }
         
         // close up
         e = dataSet.entryForIndex(bounds.range + bounds.min)
-        if e != nil
+        if e != nil && e.visible
         {
             filled.addLine(to: CGPoint(x: CGFloat(e.x), y: fillMin), transform: matrix)
         }
-        filled.closeSubpath()
+        if drawFirst {
+            filled.closeSubpath()
+        }
+     
         
         return filled
     }
@@ -485,10 +590,10 @@ open class LineChartRenderer: LineRadarRenderer
                 
                 _xBounds.set(chart: dataProvider, dataSet: dataSet, animator: animator)
 
-                for j in _xBounds
+                for j in stride(from: _xBounds.min, through: min(_xBounds.min + _xBounds.range, _xBounds.max), by: 1)
                 {
                     guard let e = dataSet.entryForIndex(j) else { break }
-                    
+                     if !e.visible {continue}
                     pt.x = CGFloat(e.x)
                     pt.y = CGFloat(e.y * phaseY)
                     pt = pt.applying(valueToPixelMatrix)
@@ -590,10 +695,10 @@ open class LineChartRenderer: LineRadarRenderer
                 (dataSet.circleHoleColor == nil ||
                     dataSet.circleHoleColor == NSUIColor.clear)
             
-            for j in _xBounds
+            for j in stride(from: _xBounds.min, through: _xBounds.range + _xBounds.min, by: 1)
             {
                 guard let e = dataSet.entryForIndex(j) else { break }
-
+                if !e.visible{continue}
                 pt.x = CGFloat(e.x)
                 pt.y = CGFloat(e.y * phaseY)
                 pt = pt.applying(valueToPixelMatrix)
